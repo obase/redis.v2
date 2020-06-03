@@ -3,7 +3,7 @@ package redis
 import (
 	"errors"
 	"fmt"
-	redigo "github.com/gomodule/redigo/redis"
+	"github.com/gomodule/redigo/redis"
 	"net"
 	"strings"
 	"sync"
@@ -21,6 +21,7 @@ type redisCluster struct {
 	*sync.RWMutex
 	Slots []*SlotInfo
 	Pools []*pool
+	Index [CLUSTER_SLOTS_NUMBER]*pool // 使用数组索引快速命中
 }
 
 func newRedisCluster(c *Config) (ret *redisCluster, err error) {
@@ -52,9 +53,6 @@ func (rc *redisCluster) UpdateClusterIndexes() (err error) {
 	slen := len(slots)
 	if len(rc.Pools) != slen {
 		rc.Pools = make([]*pool, slen)
-	}
-	if len(rc.Index) != CLUSTER_SLOTS_NUMBER {
-		rc.Index = make([]*redigoPool, CLUSTER_SLOTS_NUMBER)
 	}
 	for i, s := range slots {
 		rc.Pools[i], err = newRedisPool(rc.Config, s.Address)
@@ -169,12 +167,12 @@ type SlotInfo struct {
 
 func QueryClusterSlots(opt *Config) ([]*SlotInfo, error) {
 
-	var rc redigo.Conn
+	var rc redis.Conn
 	var err error
 	var tcp net.Conn
 	for _, address := range opt.Address {
 		if tcp, err = net.DialTimeout(opt.Network, address, opt.ConnectTimeout); err == nil {
-			rc = redigo.NewConn(tcp, opt.ReadTimeout, opt.WriteTimeout)
+			rc = redis.NewConn(tcp, opt.ReadTimeout, opt.WriteTimeout)
 			break
 		}
 	}
@@ -189,7 +187,7 @@ func QueryClusterSlots(opt *Config) ([]*SlotInfo, error) {
 		}
 	}
 
-	infos, err := redigo.Values(rc.Do("CLUSTER", "SLOTS"))
+	infos, err := redis.Values(rc.Do("CLUSTER", "SLOTS"))
 	if err != nil {
 		return nil, err
 	}
@@ -249,7 +247,7 @@ func QueryClusterSlots(opt *Config) ([]*SlotInfo, error) {
 }
 
 func IsSlotsError(err error) bool {
-	if rerr, ok := err.(redigo.Error); ok {
+	if rerr, ok := err.(redis.Error); ok {
 		msg := rerr.Error()
 		if strings.HasPrefix(msg, "MOVED") || strings.HasPrefix(msg, "ASK") {
 			return true
