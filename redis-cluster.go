@@ -21,13 +21,14 @@ type redisCluster struct {
 	*sync.RWMutex
 	Slots []*SlotInfo
 	Pools []*pool
-	Index [CLUSTER_SLOTS_NUMBER]*pool // 使用数组索引快速命中
+	Index []*pool // 使用数组索引快速命中
 }
 
 func newRedisCluster(c *Config) (ret *redisCluster, err error) {
 	ret = &redisCluster{
 		Config:  c,
 		RWMutex: new(sync.RWMutex),
+		Index:   make([]*pool, CLUSTER_SLOTS_NUMBER),
 	}
 	err = ret.UpdateClusterIndexes()
 	if err != nil {
