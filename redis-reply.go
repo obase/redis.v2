@@ -25,6 +25,9 @@ func Bool(reply interface{}, err error) (bool, bool, error) {
 		ret, err := strconv.ParseBool(string(reply))
 		return ret, true, err
 	case string:
+		if reply == "OK" {
+			return true, true, err
+		}
 		ret, err := strconv.ParseBool(reply)
 		return ret, true, err
 	case nil:

@@ -270,17 +270,22 @@ func (p *pool) Do(cmd string, keysArgs ...interface{}) (reply interface{}, err e
 	return
 }
 
-func (p *pool) Pi(call BulkCall, resp ...BulkResp) (err error) {
+func (p *pool) Pi(call BulkCall) (ret []*BulkResp, err error) {
 	rc, err := p.Get()
 	if err == nil {
 		rc.Reset() // 重置计数
 		call(rc)
-		err = rc.C.Flush()
-		var ret interface{}
-		for i := 0; i < rc.rcv; i++ {
-			ret, err = rc.C.Receive()
-			for _, rf := range resp {
-				rf(i, ret, err)
+		if rc.rcv > 0 {
+			err = rc.C.Flush()
+			if err == nil {
+				ret = make([]*BulkResp, rc.rcv)
+				for i := 0; i < rc.rcv; i++ {
+					r, e := rc.C.Receive()
+					ret[i] = &BulkResp{
+						Reply: r,
+						Error: e,
+					}
+				}
 			}
 		}
 	}
@@ -288,17 +293,42 @@ func (p *pool) Pi(call BulkCall, resp ...BulkResp) (err error) {
 	return
 }
 
-func (p *pool) Tx(call BulkCall, resp ...BulkResp) (err error) {
+func (p *pool) Ex(call BulkCall) (ret interface{}, err error) {
 	rc, err := p.Get()
 	if err == nil {
 		rc.Reset() // 重置计数
 		rc.C.Send("MULTI")
 		call(rc)
-		rets, _, err := Slice(rc.C.Do("EXEC"))
-		for i, ret := range rets {
-			for _, rf := range resp {
-				rf(i, ret, err)
+		if rc.rcv > 0 {
+			ret, err = rc.C.Do("EXEC")
+		} else {
+			rc.C.Do("DISCARD")
+		}
+	}
+	p.Put(rc)
+	return
+}
+
+func (p *pool) Tx(call BulkCall) (ret []*BulkResp, err error) {
+	rc, err := p.Get()
+	if err == nil {
+		rc.Reset() // 重置计数
+		rc.C.Send("MULTI")
+		call(rc)
+		if rc.rcv > 0 {
+			var tmp []interface{}
+			tmp, _, err = Slice(rc.C.Do("EXEC"))
+			if err == nil {
+				ret = make([]*BulkResp, len(tmp))
+				for i, t := range tmp {
+					ret[i] = &BulkResp{
+						Reply: t,
+						Error: err,
+					}
+				}
 			}
+		} else {
+			rc.C.Do("DISCARD")
 		}
 	}
 	p.Put(rc)

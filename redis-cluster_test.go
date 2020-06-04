@@ -10,7 +10,7 @@ var index []*SlotInfo
 var slots []*SlotInfo
 var btree *TreeNode
 
-func init() {
+func init2() {
 	index = make([]*SlotInfo, 16384+1)
 	var start, end int
 	for start < 16384 {

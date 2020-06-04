@@ -140,16 +140,16 @@ type Bulk interface {
 	Do(cmd string, keyArgs ...interface{})
 }
 type BulkCall func(b Bulk)
-type BulkResp func(idx int, reply interface{}, err error) (interface{}, error)
 type SubDataCall func(channel string, patter string, data []byte)
 type SubStatCall func(channel string, kind string, count int)
 
 type Redis interface {
 	Do(cmd string, keyArgs ...interface{}) (reply interface{}, err error)
-	Pi(call BulkCall, resp ...BulkResp) (err error)
-	Tx(call BulkCall, resp ...BulkResp) (err error)
-	Pub(key string, msg interface{}) (err error)
-	Sub(key string, data SubDataCall, stat SubStatCall) (err error)
-	Eval(script string, keys int, keysArgs ...interface{}) (reply interface{}, err error)
+	Pi(call BulkCall) ([]*BulkResp, error)                                                // pipeline
+	Ex(call BulkCall) (interface{}, error)                                                // transaction,不需解析结果
+	Tx(call BulkCall) ([]*BulkResp, error)                                                // transaction, 需要解析结果
+	Pub(key string, msg interface{}) (err error)                                          // publish
+	Sub(key string, data SubDataCall, stat SubStatCall) (err error)                       // subscribe
+	Eval(script string, keys int, keysArgs ...interface{}) (reply interface{}, err error) // script
 	Close()
 }

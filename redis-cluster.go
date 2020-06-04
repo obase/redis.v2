@@ -84,7 +84,20 @@ func (rc *redisCluster) index(key string) (ret *pool) {
 		}
 	}
 	rc.RWMutex.RUnlock()
-	return ret
+	return
+}
+
+// 指定读锁. 中间可能会更新cluster indexes
+func (rc *redisCluster) indexDirect(v uint16) (ret *pool) {
+	rc.RWMutex.RLock()
+	for _, s := range rc.Slots {
+		if v >= s.Start && v <= s.End {
+			ret = s.Pool
+			break
+		}
+	}
+	rc.RWMutex.RUnlock()
+	return
 }
 
 /*--------------------------接口方法----------------------------------*/
@@ -98,22 +111,85 @@ func (rc *redisCluster) Do(cmd string, keysArgs ...interface{}) (reply interface
 
 }
 
+type keysbulk []string
+
+func (b *keysbulk) Do(cmd string, keyArgs ...interface{}) {
+	if len(keyArgs) > 0 {
+		*b = append(*b, keyArgs[0].(string))
+	}
+}
+
 // 管道批量, 有可能部分成功.
-func (rc *redisCluster) Pi(bf BulkCall, resps ...BulkResp) (err error) {
-	err = rc.index("").Pi(bf, resps...)
+func (rc *redisCluster) Pi(bf BulkCall) (ret []*BulkResp, err error) {
+
+	// 检测bulk用到的key是否最hash到相同的slot,否则报错.
+	var kb keysbulk
+	bf(&kb)
+
+	var v uint16
+	for i, k := range kb {
+		if i == 0 {
+			v = Slot(k) // Slot的结果可能为0,所以没办法基于v==0来判断是否初始化
+		} else if v != Slot(k) {
+			err = fmt.Errorf("CROSSSLOT Keys in request don't hash to the same slot: %v", kb)
+			return
+		}
+	}
+
+	// 直接获取相应的slot连接池进行操作, 如果失败则更新集群索引二次重试
+	ret, err = rc.indexDirect(v).Pi(bf)
 	if err != nil && IsSlotsError(err) {
 		rc.UpdateClusterIndexes()
-		err = rc.index("").Pi(bf, resps...)
+		ret, err = rc.indexDirect(v).Pi(bf)
 	}
 	return
 }
 
 // 事务批量, 要么全部成功, 要么全部失败.
-func (rc *redisCluster) Tx(bf BulkCall, resps ...BulkResp) (err error) {
-	err = rc.index("").Tx(bf, resps...)
+func (rc *redisCluster) Tx(bf BulkCall) (ret []*BulkResp, err error) {
+
+	// 检测bulk用到的key是否最hash到相同的slot,否则报错.
+	var kb keysbulk
+	bf(&kb)
+
+	var v uint16
+	for i, k := range kb {
+		if i == 0 {
+			v = Slot(k) // Slot的结果可能为0,所以没办法基于v==0来判断是否初始化
+		} else if v != Slot(k) {
+			err = fmt.Errorf("CROSSSLOT Keys in request don't hash to the same slot: %v", kb)
+			return
+		}
+	}
+
+	ret, err = rc.indexDirect(v).Tx(bf)
 	if err != nil && IsSlotsError(err) {
 		rc.UpdateClusterIndexes()
-		err = rc.index("").Tx(bf, resps...)
+		ret, err = rc.indexDirect(v).Tx(bf)
+	}
+	return
+}
+
+func (rc *redisCluster) Ex(bf BulkCall) (ret interface{}, err error) {
+
+	// 检测bulk用到的key是否最hash到相同的slot,否则报错.
+	var kb keysbulk
+	bf(&kb)
+
+	var v uint16
+	for i, k := range kb {
+		if i == 0 {
+			v = Slot(k) // Slot的结果可能为0,所以没办法基于v==0来判断是否初始化
+		} else if v != Slot(k) {
+			err = fmt.Errorf("CROSSSLOT Keys in request don't hash to the same slot: %v", kb)
+			return
+		}
+	}
+
+	ret, err = rc.indexDirect(v).Ex(bf)
+	if err != nil && IsSlotsError(err) {
+		rc.UpdateClusterIndexes()
+		ret, err = rc.indexDirect(v).Ex(bf)
 	}
 	return
 }
