@@ -17,9 +17,9 @@ func TestPool(t *testing.T) {
 	//fmt.Println(Bytes(demo.Do("GET", "key1")))
 
 	replies, err := demo.Tx(func(b Bulk) {
-		//b.Do("HSET", "123", "name", "jason")
-		//b.Do("HSET", "123", "age", 38)
-		//b.Do("HGETALL", "123")
+		b.Do("HSET", "123", "name2", "jason")
+		b.Do("HSET", "123", "age", 38)
+		b.Do("HGETALL", "123")
 		b.Do("HGET", "123", "name")
 	})
 	if err != nil {
