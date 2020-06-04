@@ -1,3 +1,6 @@
+/*
+结合: 迭代,折半,二叉树,发现迭代是除了index外最快的结果. 相当奇怪, 留待后续验证!
+*/
 package redis
 
 import (
@@ -5,7 +8,6 @@ import (
 	"fmt"
 	"github.com/gomodule/redigo/redis"
 	"net"
-	"sort"
 	"strings"
 	"sync"
 )
@@ -19,7 +21,6 @@ type redisCluster struct {
 	*Config
 	*sync.RWMutex
 	Slots []*SlotInfo
-	Btree *TreeNode
 }
 
 func newRedisCluster(c *Config) (ret *redisCluster, err error) {
@@ -43,13 +44,12 @@ func (rc *redisCluster) UpdateClusterIndexes() (err error) {
 	if err != nil {
 		return
 	}
-	btree := BuildClusterBtree(slots)
+	//btree := BuildClusterBtree(slots)
 
 	rc.RWMutex.Lock()
 	// 清除旧的连接
 	rc.Close()
 	rc.Slots = slots
-	rc.Btree = btree
 	// 初始新的连接
 	for _, s := range slots {
 		s.Pool, err = newRedisPool(rc.Config, s.Address)
@@ -67,13 +67,19 @@ func (rc *redisCluster) UpdateClusterIndexes() (err error) {
 func (rc *redisCluster) index(key string) (ret *pool) {
 	v := Slot(key)
 	rc.RWMutex.RLock()
-	for n := rc.Btree; n != nil; {
-		if v < n.S.Start {
-			n = n.L
-		} else if v > n.S.End {
-			n = n.R
-		} else {
-			ret = n.S.Pool
+	//for n := rc.Btree; n != nil; {
+	//	if v < n.S.Start {
+	//		n = n.L
+	//	} else if v > n.S.End {
+	//		n = n.R
+	//	} else {
+	//		ret = n.S.Pool
+	//		break
+	//	}
+	//}
+	for _, s := range rc.Slots {
+		if v >= s.Start && v <= s.End {
+			ret = s.Pool
 			break
 		}
 	}
@@ -154,7 +160,7 @@ func (rc *redisCluster) Close() {
 		}
 	}
 	rc.Slots = nil // 清空链
-	rc.Btree = nil // 清链
+	//rc.Btree = nil // 清链
 }
 
 /*--------------------------------集群辅助结构及方法----------------------------*/
@@ -172,49 +178,49 @@ type TreeNode struct {
 	R *TreeNode
 }
 
-func BuildClusterBtree(slots []*SlotInfo) *TreeNode {
-	// 排序
-	sort.Slice(slots, func(i, j int) bool {
-		return slots[i].Start < slots[j].Start
-	})
-	// 建树
-	return buildSortedSlots(slots)
-}
-
-func buildSortedSlots(slots []*SlotInfo) (btree *TreeNode) {
-	switch l := len(slots); l {
-	case 0:
-	case 1:
-		btree = &TreeNode{
-			S: slots[0],
-		}
-	case 2:
-		btree = &TreeNode{
-			S: slots[1],
-			L: &TreeNode{
-				S: slots[0],
-			},
-		}
-	case 3:
-		btree = &TreeNode{
-			S: slots[1],
-			L: &TreeNode{
-				S: slots[0],
-			},
-			R: &TreeNode{
-				S: slots[2],
-			},
-		}
-	default:
-		m := l / 2
-		btree = &TreeNode{
-			S: slots[m],
-			L: buildSortedSlots(slots[:m]),
-			R: buildSortedSlots(slots[m+1:]),
-		}
-	}
-	return
-}
+//func BuildClusterBtree(slots []*SlotInfo) *TreeNode {
+//	// 排序
+//	sort.Slice(slots, func(i, j int) bool {
+//		return slots[i].Start < slots[j].Start
+//	})
+//	// 建树
+//	return buildSortedSlots(slots)
+//}
+//
+//func buildSortedSlots(slots []*SlotInfo) (btree *TreeNode) {
+//	switch l := len(slots); l {
+//	case 0:
+//	case 1:
+//		btree = &TreeNode{
+//			S: slots[0],
+//		}
+//	case 2:
+//		btree = &TreeNode{
+//			S: slots[1],
+//			L: &TreeNode{
+//				S: slots[0],
+//			},
+//		}
+//	case 3:
+//		btree = &TreeNode{
+//			S: slots[1],
+//			L: &TreeNode{
+//				S: slots[0],
+//			},
+//			R: &TreeNode{
+//				S: slots[2],
+//			},
+//		}
+//	default:
+//		m := l / 2
+//		btree = &TreeNode{
+//			S: slots[m],
+//			L: buildSortedSlots(slots[:m]),
+//			R: buildSortedSlots(slots[m+1:]),
+//		}
+//	}
+//	return
+//}
 
 func QueryClusterSlots(opt *Config) ([]*SlotInfo, error) {
 
