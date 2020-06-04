@@ -14,22 +14,22 @@ type ValueScore struct {
 func Bool(reply interface{}, err error) (bool, bool, error) {
 	if err != nil {
 		if err == redis.ErrNil {
-			return false, false, nil
+			return false, true, nil
 		}
 		return false, false, err
 	}
 	switch reply := reply.(type) {
 	case int64:
-		return reply != 0, true, nil
+		return reply != 0, false, nil
 	case []byte:
 		ret, err := strconv.ParseBool(string(reply))
-		return ret, true, err
+		return ret, false, err
 	case string:
 		if reply == "OK" {
-			return true, true, err
+			return true, false, err
 		}
 		ret, err := strconv.ParseBool(reply)
-		return ret, true, err
+		return ret, false, err
 	case nil:
 		return false, false, nil
 	case redis.Error:
@@ -41,19 +41,19 @@ func Bool(reply interface{}, err error) (bool, bool, error) {
 func Int(reply interface{}, err error) (int, bool, error) {
 	if err != nil {
 		if err == redis.ErrNil {
-			return 0, false, nil
+			return 0, true, nil
 		}
 		return 0, false, err
 	}
 	switch reply := reply.(type) {
 	case int64:
-		return int(reply), true, nil
+		return int(reply), false, nil
 	case []byte:
 		n, err := strconv.ParseInt(string(reply), 10, 0)
-		return int(n), true, err
+		return int(n), false, err
 	case string:
 		n, err := strconv.ParseInt(reply, 10, 0)
-		return int(n), true, err
+		return int(n), false, err
 	case nil:
 		return 0, false, nil
 	case redis.Error:
@@ -65,19 +65,19 @@ func Int(reply interface{}, err error) (int, bool, error) {
 func Int64(reply interface{}, err error) (int64, bool, error) {
 	if err != nil {
 		if err == redis.ErrNil {
-			return 0, false, nil
+			return 0, true, nil
 		}
 		return 0, false, err
 	}
 	switch reply := reply.(type) {
 	case int64:
-		return reply, true, nil
+		return reply, false, nil
 	case []byte:
 		n, err := strconv.ParseInt(string(reply), 10, 64)
-		return n, true, err
+		return n, false, err
 	case string:
 		n, err := strconv.ParseInt(reply, 10, 64)
-		return n, true, err
+		return n, false, err
 	case nil:
 		return 0, false, nil
 	case redis.Error:
@@ -89,22 +89,22 @@ func Int64(reply interface{}, err error) (int64, bool, error) {
 func Uint64(reply interface{}, err error) (uint64, bool, error) {
 	if err != nil {
 		if err == redis.ErrNil {
-			return 0, false, nil
+			return 0, true, nil
 		}
 		return 0, false, err
 	}
 	switch reply := reply.(type) {
 	case int64:
 		if reply < 0 {
-			return uint64(reply), true, fmt.Errorf("unexpected negative value %v for Uint64", reply)
+			return uint64(reply), false, fmt.Errorf("unexpected negative value %v for Uint64", reply)
 		}
-		return uint64(reply), true, nil
+		return uint64(reply), false, nil
 	case []byte:
 		n, err := strconv.ParseUint(string(reply), 10, 64)
-		return n, true, err
+		return n, false, err
 	case string:
 		n, err := strconv.ParseUint(reply, 10, 64)
-		return n, true, err
+		return n, false, err
 	case nil:
 		return 0, false, nil
 	case redis.Error:
@@ -116,19 +116,19 @@ func Uint64(reply interface{}, err error) (uint64, bool, error) {
 func Float64(reply interface{}, err error) (float64, bool, error) {
 	if err != nil {
 		if err == redis.ErrNil {
-			return 0, false, nil
+			return 0, true, nil
 		}
 		return 0, false, err
 	}
 	switch reply := reply.(type) {
 	case []byte:
 		n, err := strconv.ParseFloat(string(reply), 64)
-		return n, true, err
+		return n, false, err
 	case string:
 		n, err := strconv.ParseFloat(reply, 64)
-		return n, true, err
+		return n, false, err
 	case int64:
-		return float64(reply), true, nil
+		return float64(reply), false, nil
 	case nil:
 		return 0, false, nil
 	case redis.Error:
@@ -140,15 +140,15 @@ func Float64(reply interface{}, err error) (float64, bool, error) {
 func String(reply interface{}, err error) (string, bool, error) {
 	if err != nil {
 		if err == redis.ErrNil {
-			return "", false, nil
+			return "", true, nil
 		}
 		return "", false, err
 	}
 	switch reply := reply.(type) {
 	case []byte:
-		return string(reply), true, nil
+		return string(reply), false, nil
 	case string:
-		return reply, true, nil
+		return reply, false, nil
 	case int64:
 		return strconv.FormatInt(reply, 10), true, nil
 	case nil:
@@ -162,17 +162,17 @@ func String(reply interface{}, err error) (string, bool, error) {
 func Bytes(reply interface{}, err error) ([]byte, bool, error) {
 	if err != nil {
 		if err == redis.ErrNil {
-			return nil, false, nil
+			return nil, true, nil
 		}
 		return nil, false, err
 	}
 	switch reply := reply.(type) {
 	case []byte:
-		return reply, true, nil
+		return reply, false, nil
 	case string:
-		return []byte(reply), true, nil
+		return []byte(reply), false, nil
 	case int64:
-		return []byte(strconv.FormatInt(reply, 10)), true, nil
+		return []byte(strconv.FormatInt(reply, 10)), false, nil
 	case nil:
 		return nil, false, nil
 	case redis.Error:
@@ -184,7 +184,7 @@ func Bytes(reply interface{}, err error) ([]byte, bool, error) {
 func BoolSlice(reply interface{}, err error) ([]bool, bool, error) {
 	if err != nil {
 		if err == redis.ErrNil {
-			return nil, false, nil
+			return nil, true, nil
 		}
 		return nil, false, err
 	}
@@ -194,12 +194,12 @@ func BoolSlice(reply interface{}, err error) ([]bool, bool, error) {
 		for i, vi := range reply {
 			v, _, err := Bool(vi, nil)
 			if err != nil {
-				return nil, true, err
+				return nil, false, err
 			} else {
 				ret[i] = v
 			}
 		}
-		return ret, true, nil
+		return ret, false, nil
 	case nil:
 		return nil, false, nil
 	case redis.Error:
@@ -207,16 +207,16 @@ func BoolSlice(reply interface{}, err error) ([]bool, bool, error) {
 	}
 	v, _, err := Bool(reply, nil)
 	if err != nil {
-		return nil, true, err
+		return nil, false, err
 	} else {
-		return []bool{v}, true, nil
+		return []bool{v}, false, nil
 	}
 }
 
 func IntSlice(reply interface{}, err error) ([]int, bool, error) {
 	if err != nil {
 		if err == redis.ErrNil {
-			return nil, false, nil
+			return nil, true, nil
 		}
 		return nil, false, err
 	}
@@ -226,12 +226,12 @@ func IntSlice(reply interface{}, err error) ([]int, bool, error) {
 		for i, vi := range reply {
 			v, _, err := Int(vi, nil)
 			if err != nil {
-				return nil, true, err
+				return nil, false, err
 			} else {
 				ret[i] = v
 			}
 		}
-		return ret, true, nil
+		return ret, false, nil
 	case nil:
 		return nil, false, nil
 	case redis.Error:
@@ -239,16 +239,16 @@ func IntSlice(reply interface{}, err error) ([]int, bool, error) {
 	}
 	v, _, err := Int(reply, nil)
 	if err != nil {
-		return nil, true, err
+		return nil, false, err
 	} else {
-		return []int{v}, true, nil
+		return []int{v}, false, nil
 	}
 }
 
 func Int64Slice(reply interface{}, err error) ([]int64, bool, error) {
 	if err != nil {
 		if err == redis.ErrNil {
-			return nil, false, nil
+			return nil, true, nil
 		}
 		return nil, false, err
 	}
@@ -258,12 +258,12 @@ func Int64Slice(reply interface{}, err error) ([]int64, bool, error) {
 		for i, vi := range reply {
 			v, _, err := Int64(vi, nil)
 			if err != nil {
-				return nil, true, err
+				return nil, false, err
 			} else {
 				ret[i] = v
 			}
 		}
-		return ret, true, nil
+		return ret, false, nil
 	case nil:
 		return nil, false, nil
 	case redis.Error:
@@ -271,16 +271,16 @@ func Int64Slice(reply interface{}, err error) ([]int64, bool, error) {
 	}
 	v, _, err := Int64(reply, nil)
 	if err != nil {
-		return nil, true, err
+		return nil, false, err
 	} else {
-		return []int64{v}, true, nil
+		return []int64{v}, false, nil
 	}
 }
 
 func Uint64Slice(reply interface{}, err error) ([]uint64, bool, error) {
 	if err != nil {
 		if err == redis.ErrNil {
-			return nil, false, nil
+			return nil, true, nil
 		}
 		return nil, false, err
 	}
@@ -290,12 +290,12 @@ func Uint64Slice(reply interface{}, err error) ([]uint64, bool, error) {
 		for i, vi := range reply {
 			v, _, err := Uint64(vi, nil)
 			if err != nil {
-				return nil, true, err
+				return nil, false, err
 			} else {
 				ret[i] = v
 			}
 		}
-		return ret, true, nil
+		return ret, false, nil
 	case nil:
 		return nil, false, nil
 	case redis.Error:
@@ -303,16 +303,16 @@ func Uint64Slice(reply interface{}, err error) ([]uint64, bool, error) {
 	}
 	v, _, err := Uint64(reply, nil)
 	if err != nil {
-		return nil, true, err
+		return nil, false, err
 	} else {
-		return []uint64{v}, true, nil
+		return []uint64{v}, false, nil
 	}
 }
 
 func Float64Slice(reply interface{}, err error) ([]float64, bool, error) {
 	if err != nil {
 		if err == redis.ErrNil {
-			return nil, false, nil
+			return nil, true, nil
 		}
 		return nil, false, err
 	}
@@ -322,12 +322,12 @@ func Float64Slice(reply interface{}, err error) ([]float64, bool, error) {
 		for i, vi := range reply {
 			v, _, err := Float64(vi, nil)
 			if err != nil {
-				return nil, true, err
+				return nil, false, err
 			} else {
 				ret[i] = v
 			}
 		}
-		return ret, true, nil
+		return ret, false, nil
 	case nil:
 		return nil, false, nil
 	case redis.Error:
@@ -335,16 +335,16 @@ func Float64Slice(reply interface{}, err error) ([]float64, bool, error) {
 	}
 	v, _, err := Float64(reply, nil)
 	if err != nil {
-		return nil, true, err
+		return nil, false, err
 	} else {
-		return []float64{v}, true, nil
+		return []float64{v}, false, nil
 	}
 }
 
 func StringSlice(reply interface{}, err error) ([]string, bool, error) {
 	if err != nil {
 		if err == redis.ErrNil {
-			return nil, false, nil
+			return nil, true, nil
 		}
 		return nil, false, err
 	}
@@ -354,12 +354,12 @@ func StringSlice(reply interface{}, err error) ([]string, bool, error) {
 		for i, vi := range reply {
 			v, _, err := String(vi, nil)
 			if err != nil {
-				return nil, true, err
+				return nil, false, err
 			} else {
 				ret[i] = v
 			}
 		}
-		return ret, true, nil
+		return ret, false, nil
 	case nil:
 		return nil, false, nil
 	case redis.Error:
@@ -367,16 +367,16 @@ func StringSlice(reply interface{}, err error) ([]string, bool, error) {
 	}
 	v, _, err := String(reply, nil)
 	if err != nil {
-		return nil, true, err
+		return nil, false, err
 	} else {
-		return []string{v}, true, nil
+		return []string{v}, false, nil
 	}
 }
 
 func BytesSlice(reply interface{}, err error) ([][]byte, bool, error) {
 	if err != nil {
 		if err == redis.ErrNil {
-			return nil, false, nil
+			return nil, true, nil
 		}
 		return nil, false, err
 	}
@@ -386,12 +386,12 @@ func BytesSlice(reply interface{}, err error) ([][]byte, bool, error) {
 		for i, vi := range reply {
 			v, _, err := Bytes(vi, nil)
 			if err != nil {
-				return nil, true, err
+				return nil, false, err
 			} else {
 				ret[i] = v
 			}
 		}
-		return ret, true, nil
+		return ret, false, nil
 	case nil:
 		return nil, false, nil
 	case redis.Error:
@@ -399,16 +399,16 @@ func BytesSlice(reply interface{}, err error) ([][]byte, bool, error) {
 	}
 	v, _, err := Bytes(reply, nil)
 	if err != nil {
-		return nil, true, err
+		return nil, false, err
 	} else {
-		return [][]byte{v}, true, nil
+		return [][]byte{v}, false, nil
 	}
 }
 
 func ValueScoreSlice(reply interface{}, err error) ([]*ValueScore, bool, error) {
 	if err != nil {
 		if err == redis.ErrNil {
-			return nil, false, nil
+			return nil, true, nil
 		}
 		return nil, false, err
 	}
@@ -420,11 +420,11 @@ func ValueScoreSlice(reply interface{}, err error) ([]*ValueScore, bool, error) 
 		for i, j := 1, 0; i < len; i += 2 {
 			k, _, err := String(reply[i-1], nil)
 			if err != nil {
-				return nil, true, err
+				return nil, false, err
 			}
 			v, _, err := Float64(reply[i], nil)
 			if err != nil {
-				return nil, true, err
+				return nil, false, err
 			}
 			ret[j] = &ValueScore{
 				Value: k,
@@ -432,24 +432,27 @@ func ValueScoreSlice(reply interface{}, err error) ([]*ValueScore, bool, error) 
 			}
 			j++
 		}
-		return ret, true, nil
+		return ret, false, nil
 	case nil:
 		return nil, false, nil
 	case redis.Error:
 		return nil, false, reply
 	}
-	return nil, true, fmt.Errorf("unexpected type for ValueScoreSlice %T", reply)
+	return nil, false, fmt.Errorf("unexpected type for ValueScoreSlice %T", reply)
 }
 
 func Slice(reply interface{}, err error) ([]interface{}, bool, error) {
 	if err != nil {
+		if err == redis.ErrNil {
+			return nil, true, nil
+		}
 		return nil, false, err
 	}
 	switch reply := reply.(type) {
 	case nil:
 		return nil, false, redis.ErrNil
 	case []interface{}:
-		return reply, true, nil
+		return reply, false, nil
 	case redis.Error:
 		return nil, false, reply
 	}
@@ -459,7 +462,7 @@ func Slice(reply interface{}, err error) ([]interface{}, bool, error) {
 func Map(reply interface{}, err error) (map[string]interface{}, bool, error) {
 	if err != nil {
 		if err == redis.ErrNil {
-			return nil, false, nil
+			return nil, true, nil
 		}
 		return nil, false, err
 	}
@@ -471,23 +474,23 @@ func Map(reply interface{}, err error) (map[string]interface{}, bool, error) {
 		for i := 1; i < len; i += 2 {
 			k, _, err := String(reply[i-1], nil)
 			if err != nil {
-				return nil, true, err
+				return nil, false, err
 			}
 			ret[k] = reply[i]
 		}
-		return ret, true, nil
+		return ret, false, nil
 	case nil:
 		return nil, false, nil
 	case redis.Error:
 		return nil, false, reply
 	}
-	return nil, true, fmt.Errorf("unexpected type for Map %T", reply)
+	return nil, false, fmt.Errorf("unexpected type for Map %T", reply)
 }
 
 func BoolMap(reply interface{}, err error) (map[string]bool, bool, error) {
 	if err != nil {
 		if err == redis.ErrNil {
-			return nil, false, nil
+			return nil, true, nil
 		}
 		return nil, false, err
 	}
@@ -499,27 +502,27 @@ func BoolMap(reply interface{}, err error) (map[string]bool, bool, error) {
 		for i := 1; i < len; i += 2 {
 			k, _, err := String(reply[i-1], nil)
 			if err != nil {
-				return nil, true, err
+				return nil, false, err
 			}
 			v, _, err := Bool(reply[i], nil)
 			if err != nil {
-				return nil, true, err
+				return nil, false, err
 			}
 			ret[k] = v
 		}
-		return ret, true, nil
+		return ret, false, nil
 	case nil:
 		return nil, false, nil
 	case redis.Error:
 		return nil, false, reply
 	}
-	return nil, true, fmt.Errorf("unexpected type for Map %T", reply)
+	return nil, false, fmt.Errorf("unexpected type for Map %T", reply)
 }
 
 func IntMap(reply interface{}, err error) (map[string]int, bool, error) {
 	if err != nil {
 		if err == redis.ErrNil {
-			return nil, false, nil
+			return nil, true, nil
 		}
 		return nil, false, err
 	}
@@ -531,27 +534,27 @@ func IntMap(reply interface{}, err error) (map[string]int, bool, error) {
 		for i := 1; i < len; i += 2 {
 			k, _, err := String(reply[i-1], nil)
 			if err != nil {
-				return nil, true, err
+				return nil, false, err
 			}
 			v, _, err := Int(reply[i], nil)
 			if err != nil {
-				return nil, true, err
+				return nil, false, err
 			}
 			ret[k] = v
 		}
-		return ret, true, nil
+		return ret, false, nil
 	case nil:
 		return nil, false, nil
 	case redis.Error:
 		return nil, false, reply
 	}
-	return nil, true, fmt.Errorf("unexpected type for IntMap %T", reply)
+	return nil, false, fmt.Errorf("unexpected type for IntMap %T", reply)
 }
 
 func Int64Map(reply interface{}, err error) (map[string]int64, bool, error) {
 	if err != nil {
 		if err == redis.ErrNil {
-			return nil, false, nil
+			return nil, true, nil
 		}
 		return nil, false, err
 	}
@@ -563,27 +566,27 @@ func Int64Map(reply interface{}, err error) (map[string]int64, bool, error) {
 		for i := 1; i < len; i += 2 {
 			k, _, err := String(reply[i-1], nil)
 			if err != nil {
-				return nil, true, err
+				return nil, false, err
 			}
 			v, _, err := Int64(reply[i], nil)
 			if err != nil {
-				return nil, true, err
+				return nil, false, err
 			}
 			ret[k] = v
 		}
-		return ret, true, nil
+		return ret, false, nil
 	case nil:
 		return nil, false, nil
 	case redis.Error:
 		return nil, false, reply
 	}
-	return nil, true, fmt.Errorf("unexpected type for Int64Map %T", reply)
+	return nil, false, fmt.Errorf("unexpected type for Int64Map %T", reply)
 }
 
 func Uint64Map(reply interface{}, err error) (map[string]uint64, bool, error) {
 	if err != nil {
 		if err == redis.ErrNil {
-			return nil, false, nil
+			return nil, true, nil
 		}
 		return nil, false, err
 	}
@@ -595,27 +598,27 @@ func Uint64Map(reply interface{}, err error) (map[string]uint64, bool, error) {
 		for i := 1; i < len; i += 2 {
 			k, _, err := String(reply[i-1], nil)
 			if err != nil {
-				return nil, true, err
+				return nil, false, err
 			}
 			v, _, err := Uint64(reply[i], nil)
 			if err != nil {
-				return nil, true, err
+				return nil, false, err
 			}
 			ret[k] = v
 		}
-		return ret, true, nil
+		return ret, false, nil
 	case nil:
 		return nil, false, nil
 	case redis.Error:
 		return nil, false, reply
 	}
-	return nil, true, fmt.Errorf("unexpected type for Uint64Map %T", reply)
+	return nil, false, fmt.Errorf("unexpected type for Uint64Map %T", reply)
 }
 
 func Float64Map(reply interface{}, err error) (map[string]float64, bool, error) {
 	if err != nil {
 		if err == redis.ErrNil {
-			return nil, false, nil
+			return nil, true, nil
 		}
 		return nil, false, err
 	}
@@ -627,27 +630,27 @@ func Float64Map(reply interface{}, err error) (map[string]float64, bool, error) 
 		for i := 1; i < len; i += 2 {
 			k, _, err := String(reply[i-1], nil)
 			if err != nil {
-				return nil, true, err
+				return nil, false, err
 			}
 			v, _, err := Float64(reply[i], nil)
 			if err != nil {
-				return nil, true, err
+				return nil, false, err
 			}
 			ret[k] = v
 		}
-		return ret, true, nil
+		return ret, false, nil
 	case nil:
 		return nil, false, nil
 	case redis.Error:
 		return nil, false, reply
 	}
-	return nil, true, fmt.Errorf("unexpected type for Float64Map %T", reply)
+	return nil, false, fmt.Errorf("unexpected type for Float64Map %T", reply)
 }
 
 func StringMap(reply interface{}, err error) (map[string]string, bool, error) {
 	if err != nil {
 		if err == redis.ErrNil {
-			return nil, false, nil
+			return nil, true, nil
 		}
 		return nil, false, err
 	}
@@ -659,27 +662,27 @@ func StringMap(reply interface{}, err error) (map[string]string, bool, error) {
 		for i := 1; i < len; i += 2 {
 			k, _, err := String(reply[i-1], nil)
 			if err != nil {
-				return nil, true, err
+				return nil, false, err
 			}
 			v, _, err := String(reply[i], nil)
 			if err != nil {
-				return nil, true, err
+				return nil, false, err
 			}
 			ret[k] = v
 		}
-		return ret, true, nil
+		return ret, false, nil
 	case nil:
 		return nil, false, nil
 	case redis.Error:
 		return nil, false, reply
 	}
-	return nil, true, fmt.Errorf("unexpected type for StringMap %T", reply)
+	return nil, false, fmt.Errorf("unexpected type for StringMap %T", reply)
 }
 
 func BytesMap(reply interface{}, err error) (map[string][]byte, bool, error) {
 	if err != nil {
 		if err == redis.ErrNil {
-			return nil, false, nil
+			return nil, true, nil
 		}
 		return nil, false, err
 	}
@@ -691,19 +694,19 @@ func BytesMap(reply interface{}, err error) (map[string][]byte, bool, error) {
 		for i := 1; i < len; i += 2 {
 			k, _, err := String(reply[i-1], nil)
 			if err != nil {
-				return nil, true, err
+				return nil, false, err
 			}
 			v, _, err := Bytes(reply[i], nil)
 			if err != nil {
-				return nil, true, err
+				return nil, false, err
 			}
 			ret[k] = v
 		}
-		return ret, true, nil
+		return ret, false, nil
 	case nil:
 		return nil, false, nil
 	case redis.Error:
 		return nil, false, reply
 	}
-	return nil, true, fmt.Errorf("unexpected type for BytesMap %T", reply)
+	return nil, false, fmt.Errorf("unexpected type for BytesMap %T", reply)
 }
