@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/gomodule/redigo/redis"
 	"net"
+	"sort"
 	"strings"
 	"sync"
 )
@@ -18,15 +19,13 @@ type redisCluster struct {
 	*Config
 	*sync.RWMutex
 	Slots []*SlotInfo
-	Pools []*pool
-	Index []*pool // 使用数组索引快速命中
+	Btree *TreeNode
 }
 
 func newRedisCluster(c *Config) (ret *redisCluster, err error) {
 	ret = &redisCluster{
 		Config:  c,
 		RWMutex: new(sync.RWMutex),
-		Index:   make([]*pool, CLUSTER_SLOTS_NUMBER),
 	}
 	err = ret.UpdateClusterIndexes()
 	if err != nil {
@@ -41,53 +40,53 @@ func (rc *redisCluster) UpdateClusterIndexes() (err error) {
 
 	// 获取最新的slots并比较是否发生变化
 	slots, err := QueryClusterSlots(rc.Config)
-	if err != nil || !IsSlotsChanged(rc.Slots, slots) {
+	if err != nil {
 		return
 	}
+	btree := BuildClusterBtree(slots)
 
 	rc.RWMutex.Lock()
 	// 清除旧的连接
 	rc.Close()
-	// 重用旧的内存
-	slen := len(slots)
-	if len(rc.Pools) != slen {
-		rc.Pools = make([]*pool, slen)
-	}
-	for i, s := range slots {
-		rc.Pools[i], err = newRedisPool(rc.Config, s.Address)
+	rc.Slots = slots
+	rc.Btree = btree
+	// 初始新的连接
+	for _, s := range slots {
+		s.Pool, err = newRedisPool(rc.Config, s.Address)
 		if err != nil {
 			// 如果发生错误,需要级联清除已经创建的其他连接池
-			for j := 0; j < i; j++ {
-				rc.Pools[i].Close()
-			}
-			rc.RWMutex.Unlock()
-			return
-		}
-
-		for j := s.Start; j <= s.End; j++ {
-			rc.Index[j] = rc.Pools[i]
+			rc.Close()
+			break
 		}
 	}
-
 	rc.RWMutex.Unlock()
 	return
 }
 
 // 指定读锁. 中间可能会更新cluster indexes
-func (rc *redisCluster) indexRedis(key string) *pool {
-	sl := Slot(key)
+func (rc *redisCluster) index(key string) (ret *pool) {
+	v := Slot(key)
 	rc.RWMutex.RLock()
-	ret := rc.Index[sl]
+	for n := rc.Btree; n != nil; {
+		if v < n.Start {
+			n = n.LNode
+		} else if v > n.End {
+			n = n.RNode
+		} else {
+			ret = n.Pool
+			break
+		}
+	}
 	rc.RWMutex.RUnlock()
 	return ret
 }
 
 /*--------------------------接口方法----------------------------------*/
 func (rc *redisCluster) Do(cmd string, keysArgs ...interface{}) (reply interface{}, err error) {
-	reply, err = rc.indexRedis(keysArgs[0].(string)).Do(cmd, keysArgs...)
+	reply, err = rc.index(keysArgs[0].(string)).Do(cmd, keysArgs...)
 	if err != nil && IsSlotsError(err) {
 		rc.UpdateClusterIndexes()
-		reply, err = rc.indexRedis(keysArgs[0].(string)).Do(cmd, keysArgs...)
+		reply, err = rc.index(keysArgs[0].(string)).Do(cmd, keysArgs...)
 	}
 	return
 
@@ -95,40 +94,40 @@ func (rc *redisCluster) Do(cmd string, keysArgs ...interface{}) (reply interface
 
 // 管道批量, 有可能部分成功.
 func (rc *redisCluster) Pi(bf BulkCall, resps ...BulkResp) (err error) {
-	err = rc.indexRedis("").Pi(bf, resps...)
+	err = rc.index("").Pi(bf, resps...)
 	if err != nil && IsSlotsError(err) {
 		rc.UpdateClusterIndexes()
-		err = rc.indexRedis("").Pi(bf, resps...)
+		err = rc.index("").Pi(bf, resps...)
 	}
 	return
 }
 
 // 事务批量, 要么全部成功, 要么全部失败.
 func (rc *redisCluster) Tx(bf BulkCall, resps ...BulkResp) (err error) {
-	err = rc.indexRedis("").Tx(bf, resps...)
+	err = rc.index("").Tx(bf, resps...)
 	if err != nil && IsSlotsError(err) {
 		rc.UpdateClusterIndexes()
-		err = rc.indexRedis("").Tx(bf, resps...)
+		err = rc.index("").Tx(bf, resps...)
 	}
 	return
 }
 
 // Publish
 func (rc *redisCluster) Pub(key string, msg interface{}) (err error) {
-	err = rc.indexRedis(key).Pub(key, msg)
+	err = rc.index(key).Pub(key, msg)
 	if err != nil && IsSlotsError(err) {
 		rc.UpdateClusterIndexes()
-		err = rc.indexRedis(key).Pub(key, msg)
+		err = rc.index(key).Pub(key, msg)
 	}
 	return
 }
 
 // Subscribe, 阻塞执行sf直到返回stop或error才会结束
 func (rc *redisCluster) Sub(key string, data SubDataCall, meta SubStatCall) (err error) {
-	err = rc.indexRedis(key).Sub(key, data, meta)
+	err = rc.index(key).Sub(key, data, meta)
 	if err != nil && IsSlotsError(err) {
 		rc.UpdateClusterIndexes()
-		err = rc.indexRedis(key).Sub(key, data, meta)
+		err = rc.index(key).Sub(key, data, meta)
 	}
 	return
 
@@ -139,29 +138,82 @@ func (rc *redisCluster) Eval(script string, keyCount int, keysArgs ...interface{
 		return nil, ErrArgumentException
 	}
 
-	reply, err = rc.indexRedis(keysArgs[0].(string)).Eval(script, keyCount, keysArgs)
+	reply, err = rc.index(keysArgs[0].(string)).Eval(script, keyCount, keysArgs)
 	if err != nil && IsSlotsError(err) {
 		rc.UpdateClusterIndexes()
-		reply, err = rc.indexRedis(keysArgs[0].(string)).Eval(script, keyCount, keysArgs)
+		reply, err = rc.index(keysArgs[0].(string)).Eval(script, keyCount, keysArgs)
 	}
 	return
 }
 
 func (rc *redisCluster) Close() {
 	// 关闭操作不用锁,避免等待影响
-	for _, p := range rc.Pools {
-		if p != nil {
-			p.Close()
+	for _, s := range rc.Slots {
+		if s != nil && s.Pool != nil {
+			s.Pool.Close()
 		}
 	}
+	rc.Slots = nil // 清空链
+	rc.Btree = nil // 清链
 }
 
 /*--------------------------------集群辅助结构及方法----------------------------*/
 
 type SlotInfo struct {
-	Start   int
-	End     int
+	Start   uint16
+	End     uint16
 	Address string
+	Pool    *pool
+}
+
+type TreeNode struct {
+	S *SlotInfo
+	L *TreeNode
+	R *TreeNode
+}
+
+func BuildClusterBtree(slots []*SlotInfo) *TreeNode {
+	// 排序
+	sort.Slice(slots, func(i, j int) bool {
+		return slots[i].Start < slots[j].Start
+	})
+	// 建树
+	return buildSortedSlots(slots)
+}
+
+func buildSortedSlots(slots []*SlotInfo) (btree *TreeNode) {
+	switch l := len(slots); l {
+	case 0:
+	case 1:
+		btree = &TreeNode{
+			S: slots[0],
+		}
+	case 2:
+		btree = &TreeNode{
+			S: slots[1],
+			L: &TreeNode{
+				S: slots[0],
+			},
+		}
+	case 3:
+		btree = &TreeNode{
+			S: slots[1],
+			L: &TreeNode{
+				S: slots[0],
+			},
+			R: &TreeNode{
+				S: slots[2],
+			},
+		}
+	default:
+		m := l / 2
+		btree = &TreeNode{
+			S: slots[m],
+			L: buildSortedSlots(slots[:m]),
+			R: buildSortedSlots(slots[m+1:]),
+		}
+	}
+	return
 }
 
 func QueryClusterSlots(opt *Config) ([]*SlotInfo, error) {
