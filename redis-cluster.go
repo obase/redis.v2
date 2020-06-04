@@ -68,12 +68,12 @@ func (rc *redisCluster) index(key string) (ret *pool) {
 	v := Slot(key)
 	rc.RWMutex.RLock()
 	for n := rc.Btree; n != nil; {
-		if v < n.Start {
-			n = n.LNode
-		} else if v > n.End {
-			n = n.RNode
+		if v < n.S.Start {
+			n = n.L
+		} else if v > n.S.End {
+			n = n.R
 		} else {
-			ret = n.Pool
+			ret = n.S.Pool
 			break
 		}
 	}
@@ -274,8 +274,8 @@ func QueryClusterSlots(opt *Config) ([]*SlotInfo, error) {
 	plen := len(opt.Proxyips)
 	for i, info := range infos {
 		data := info.([]interface{})
-		start, _, _ := Int(data[0], nil)
-		end, _, _ := Int(data[1], nil)
+		start, _, _ := Uint64(data[0], nil)
+		end, _, _ := Uint64(data[1], nil)
 		addrs := data[2].([]interface{})
 		host, _, _ := String(addrs[0], nil)
 		port, _, _ := Int(addrs[1], nil)
@@ -288,8 +288,8 @@ func QueryClusterSlots(opt *Config) ([]*SlotInfo, error) {
 			}
 		}
 		ret[i] = &SlotInfo{
-			Start:   start,
-			End:     end,
+			Start:   uint16(start),
+			End:     uint16(end),
 			Address: fmt.Sprintf("%s:%d", host, port),
 		}
 	}
@@ -335,7 +335,7 @@ func IsSlotsChanged(slot1, slot2 []*SlotInfo) bool {
 }
 
 /*====================slots约定====================*/
-const CLUSTER_SLOTS_NUMBER = 16384 //redis cluster fixed slots
+const CLUSTER_SLOTS_NUMBER uint16 = 16384 //redis cluster fixed slots
 
 var tab = [256]uint16{
 	0x0000, 0x1021, 0x2042, 0x3063, 0x4084, 0x50a5, 0x60c6, 0x70e7,
@@ -387,7 +387,7 @@ func Slot(key string) uint16 {
 			break
 		}
 	}
-	crc := uint16(0)
+	var crc uint16
 	for i := start; i < end; i++ {
 		index := byte(crc>>8) ^ bs[i]
 		crc = (crc << 8) ^ tab[index]
