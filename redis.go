@@ -30,30 +30,71 @@ type Config struct {
 	Proxyips map[string]string `json:"proxyips" yaml:"proxyips"` //代理IP集合,一般用于本地测试用
 }
 
-func (c *Config) cluster(address []string) (ret *Config) {
-	ret = new(Config)
-	ret.Network = c.Network
-	ret.Address = address
-	ret.Keepalive = c.Keepalive
-	ret.ConnectTimeout = c.ConnectTimeout
-	ret.ReadTimeout = c.ReadTimeout
-	ret.WriteTimeout = c.WriteTimeout
-	ret.Password = c.Password
-
-	ret.InitConns = c.InitConns
-	ret.MaxConns = c.MaxConns
-	ret.MaxIdles = c.MaxIdles
-	ret.TestIdleTimeout = c.TestIdleTimeout
-	ret.ErrExceMaxConns = c.ErrExceMaxConns
-	ret.Select = c.Select
-	ret.Cluster = c.Cluster // 下发集群信息
-
-	ret.Proxyips = c.Proxyips
-	return
-}
-
 func init() {
+	configs, ok := conf.GetSlice(CKEY)
+	if !ok {
+		return
+	}
 
+	for _, config := range configs {
+		if key, ok := conf.ElemString(config, "key"); ok {
+			address, ok := conf.ElemStringSlice(config, "address")
+			cluster, ok := conf.ElemBool(config, "cluster")
+			password, ok := conf.ElemString(config, "password")
+			keepalive, ok := conf.ElemDuration(config, "keepalive")
+			connectTimeout, ok := conf.ElemDuration(config, "connectTimeout")
+			if !ok {
+				connectTimeout = 30 * time.Second
+			}
+			readTimeout, ok := conf.ElemDuration(config, "readTimeout")
+			if !ok {
+				readTimeout = 30 * time.Second
+			}
+			writeTimeout, ok := conf.ElemDuration(config, "writeTimeout")
+			if !ok {
+				writeTimeout = 30 * time.Second
+			}
+			initConns, ok := conf.ElemInt(config, "initConns")
+			maxConns, ok := conf.ElemInt(config, "maxConns")
+			if !ok {
+				maxConns = 16
+			}
+			maxIdles, ok := conf.ElemInt(config, "maxIdles")
+			if !ok {
+				maxIdles = 16
+			}
+			testIdleTimeout, ok := conf.ElemDuration(config, "testIdleTimeout")
+			errExceMaxConns, ok := conf.ElemBool(config, "errExceMaxConns")
+			if !ok {
+				errExceMaxConns = false
+			}
+			_select, ok := conf.ElemInt(config, "select")
+			proxyips, ok := conf.ElemStringMap(config, "proxyips")
+
+			option := &Config{
+				Key:             key,
+				Network:         "tcp",
+				Address:         address,
+				Keepalive:       keepalive,
+				ConnectTimeout:  connectTimeout,
+				ReadTimeout:     readTimeout,
+				WriteTimeout:    writeTimeout,
+				Password:        password,
+				InitConns:       initConns,
+				MaxConns:        maxConns,
+				MaxIdles:        maxIdles,
+				TestIdleTimeout: testIdleTimeout,
+				ErrExceMaxConns: errExceMaxConns,
+				Select:          _select,
+				Cluster:         cluster,
+				Proxyips:        proxyips,
+			}
+
+			if err := Setup(option); err != nil {
+				panic(err)
+			}
+		}
+	}
 }
 
 var instances = make(map[string]Redis)
