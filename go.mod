@@ -1,4 +1,4 @@
-module github.com/obase/redis
+module github.com/obase/redis.v2
 
 go 1.12
 

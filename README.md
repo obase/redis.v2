@@ -5,7 +5,7 @@ redis客户端封装
 - go get 
 ```
 go get -u github.com/gomodule/redigo
-go get -u github.com/obase/redis
+go get -u github.com/obase/redis.v2
 ```
 - go mod
 ```
