@@ -10,10 +10,8 @@ import (
 )
 
 var (
-	ErrInvalidClusterSlots = errors.New("Invalid cluster slots")
-	ErrUnsupportOperation  = errors.New("unsupport operation")
+	ErrInvalidClusterSlots = errors.New("invalid cluster slots")
 	ErrArgumentException   = errors.New("argument exception")
-	ErrUnsupportKeyCount   = errors.New("unsupport script key count, which must be 1 on cluster mode")
 )
 
 type redisCluster struct {
