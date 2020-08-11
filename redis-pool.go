@@ -36,26 +36,30 @@ type pool struct {
 	Address      string // 用于集群模式覆盖config中的address配置
 	TestIdleSecs int64
 	Nalls        int   // 所有数量
-	Nfree        int   // 空闲数量
-	Lfree        *conn // 空闲链表头
+	Hfree        *conn // 空闲链表头
 	Tfree        *conn // 空闲链表尾
-	Lused        *conn // 在用链表头
+	Hused        *conn // 在用链表头
 }
 
 func newRedisPool(c *Config, address string) (*pool, error) {
 	mux := new(sync.Mutex)
+	nod := new(conn)
 	p := &pool{
 		Config:       c,
 		Mutex:        mux,
 		Cond:         sync.NewCond(mux),
 		Address:      nvl(address, c.Address[0]),
 		TestIdleSecs: int64(c.TestIdleTimeout.Seconds()),
+		Hfree:        nod, // 哨兵
+		Tfree:        nod,
+		Hused:        new(conn), // 哨兵
 	}
+
 	for i := 0; i < c.InitConns; i++ {
-		_, err := p.Create(false)
+		_, err := p.create(false)
 		if err != nil {
 			// 清理已经建好的链接
-			p.Foreach(func(c *conn) {
+			p.foreach(func(c *conn) {
 				c.C.Close()
 			})
 			return nil, err
@@ -115,93 +119,76 @@ func (p *pool) new() (ret *conn, err error) {
 4. 删: 将conn的前后对接起来,并将自尾置空
 */
 
-func (p *pool) Foreach(f func(c *conn)) {
-	for e := p.Lused; e != nil; e = e.Next {
+func (p *pool) foreach(f func(c *conn)) {
+	for e := p.Hused.Next; e != nil; e = e.Next {
 		f(e)
 	}
-	for e := p.Lfree; e != nil; e = e.Next {
+	for e := p.Hfree.Next; e != nil; e = e.Next {
 		f(e)
 	}
 }
 
-func (p *pool) Create(used bool) (c *conn, err error) {
+func (p *pool) create(used bool) (c *conn, err error) {
 	c, err = p.new()
 	if err != nil {
 		return
 	}
 	if used {
-		//生成直接使用. 在used头插入,默认conn.Nxt为nil
-		if p.Lused != nil {
-			p.Lused.Prev = c
-			c.Next = p.Lused
+		if p.Hused.Next != nil {
+			p.Hused.Next.Prev = c
 		}
-		p.Lused = c
+		c.Next = p.Hused.Next
+		p.Hused.Next = c
+		c.Prev = p.Hused
 	} else {
-		if p.Lfree != nil {
-			p.Lfree.Prev = c
-			c.Next = p.Lfree
-		}
-		p.Lfree = c
-
-		if p.Tfree == nil {
-			p.Tfree = c
-		}
-
-		p.Nfree++
+		p.Tfree.Next = c
+		c.Prev = p.Tfree
+		p.Tfree = c
 	}
 	p.Nalls++
-
 	return
 }
 
-func (p *pool) Remove(c *conn) {
-	if n := c.Prev; n != nil {
-		n.Next = c.Next
+func (p *pool) remove(c *conn) {
+	if c.Next != nil {
+		c.Next.Prev = c.Prev
 	}
-	if n := c.Next; n != nil {
-		n.Prev = c.Prev
+	if c.Prev != nil {
+		c.Prev.Next = c.Next
 	}
 	p.Nalls--
 }
 
-func (p *pool) Borrow() (c *conn) {
-	if p.Tfree != nil {
+func (p *pool) borrow() (c *conn) {
+	if p.Tfree != p.Hfree {
 		c = p.Tfree
 		p.Tfree = c.Prev
-		if p.Tfree != nil {
-			p.Tfree.Next = nil // 必须重置后继,否则影响Remove
-		}
-		if p.Lused != nil {
-			p.Lused.Prev = c
-			c.Next = p.Lused
-		}
-		p.Lused = c
-		p.Lused.Prev = nil // 必须重置前驱,否则影响Remove
+		p.Tfree.Next = nil // 确保结尾为nil
 
-		p.Nfree--
+		c.Next = p.Hused.Next
+		if p.Hused.Next != nil {
+			p.Hused.Next.Prev = c
+		}
+
+		c.Prev = p.Hused
+		p.Hused.Next = c
 	}
 	return
 }
 
-func (p *pool) Return(c *conn) {
+func (p *pool) revert(c *conn) {
 	c.T = time.Now().Unix()
-	if n := c.Prev; n != nil {
-		n.Next = c.Next
+
+	if c.Next != nil {
+		c.Next.Prev = c.Prev
 	}
-	if n := c.Next; n != nil {
-		n.Prev = c.Prev
+	if c.Prev != nil {
+		c.Prev.Next = c.Next
 	}
 
-	if p.Lfree != nil {
-		p.Lfree.Prev = c
-		c.Next = p.Lfree
-	}
-	p.Lfree = c
-	p.Lfree.Prev = nil
-	if p.Tfree == nil {
-		p.Tfree = c
-	}
-	p.Nfree++
+	c.Next = p.Hfree.Next
+	p.Hfree.Next = c
+	c.Prev = p.Hfree
 }
 
 /*************************START: 池化操作*******************************/
@@ -209,7 +196,7 @@ func (p *pool) Get() (ret *conn, err error) {
 	for {
 		p.Mutex.Lock()
 		if p.Config.MaxConns > 0 {
-			for p.Nfree == 0 && p.Nalls >= p.Config.MaxConns {
+			for p.Nalls >= p.Config.MaxConns {
 				if p.ErrExceMaxConns {
 					p.Mutex.Unlock()
 					return nil, ErrExceedMaxConns
@@ -218,10 +205,9 @@ func (p *pool) Get() (ret *conn, err error) {
 				}
 			}
 		}
-		if p.Nfree > 0 {
-			ret = p.Borrow()
-		} else {
-			ret, err = p.Create(true)
+		ret = p.borrow()
+		if ret == nil {
+			ret, err = p.create(true)
 		}
 		p.Mutex.Unlock()
 		if err != nil {
@@ -231,7 +217,8 @@ func (p *pool) Get() (ret *conn, err error) {
 		if p.TestIdleSecs == 0 || ret.T+p.TestIdleSecs > time.Now().Unix() {
 			//  无需检测或未超时,直接返回
 			return
-		} else if _, err = ret.C.Do("PING"); err == nil {
+		}
+		if _, err = ret.C.Do("PING"); err == nil {
 			ret.T = time.Now().Unix()
 			// 检测通过, 直接返回
 			return
@@ -248,9 +235,9 @@ func (p *pool) Put(c *conn) {
 	broken := c.C.Err() != nil
 	p.Mutex.Lock()
 	if broken {
-		p.Remove(c)
+		p.remove(c)
 	} else {
-		p.Return(c)
+		p.revert(c)
 	}
 	p.Cond.Signal()
 	p.Mutex.Unlock()
@@ -380,7 +367,7 @@ func (p *pool) Eval(script string, keyCount int, keysArgs ...interface{}) (reply
 
 func (p *pool) Close() {
 	// 关闭无需获取锁,避免二次阻塞
-	p.Foreach(func(c *conn) {
+	p.foreach(func(c *conn) {
 		c.C.Close()
 	})
 	return
