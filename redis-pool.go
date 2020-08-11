@@ -152,6 +152,7 @@ func (p *pool) create(used bool) (c *conn, err error) {
 		}
 		c.Next = p.Lfree.Next
 		p.Lfree.Next = c
+		c.Prev = p.Lfree
 		p.Nfree++
 	}
 	p.Nalls++
