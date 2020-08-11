@@ -244,9 +244,9 @@ func (p *pool) Put(c *conn) {
 	if c == nil {
 		return
 	}
-	broken := c.C.Err() != nil
+	broken := c.C.Err() != nil || p.Nfree > p.Config.MaxIdles
 	p.Mutex.Lock()
-	if broken || p.Nalls > p.Config.InitConns {
+	if broken {
 		p.remove(c)
 	} else {
 		p.revert(c)
