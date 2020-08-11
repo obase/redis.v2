@@ -36,12 +36,22 @@ type pool struct {
 	Address      string // 用于集群模式覆盖config中的address配置
 	TestIdleSecs int64
 	Nalls        int   // 所有数量
+	Nfree        int   // 空闲数量
 	Hfree        *conn // 空闲链表头
 	Tfree        *conn // 空闲链表尾
 	Hused        *conn // 在用链表头
 }
 
 func newRedisPool(c *Config, address string) (*pool, error) {
+	// 如果最大空闲小于初始大小
+	if c.InitConns != 0 && c.MaxIdles < c.InitConns {
+		c.MaxIdles = c.InitConns
+	}
+	// 如果最大空闲大于最大容量
+	if c.MaxConns != 0 && c.MaxIdles > c.MaxConns {
+		c.MaxIdles = c.MaxConns
+	}
+
 	mux := new(sync.Mutex)
 	nod := new(conn)
 	p := &pool{
@@ -144,6 +154,7 @@ func (p *pool) create(used bool) (c *conn, err error) {
 		p.Tfree.Next = c
 		c.Prev = p.Tfree
 		p.Tfree = c
+		p.Nfree++
 	}
 	p.Nalls++
 	return
@@ -160,10 +171,11 @@ func (p *pool) remove(c *conn) {
 }
 
 func (p *pool) borrow() (c *conn) {
-	if p.Tfree != p.Hfree {
+	if p.Nfree > 0 {
 		c = p.Tfree
 		p.Tfree = c.Prev
 		p.Tfree.Next = nil // 确保结尾为nil
+		p.Nfree--
 
 		c.Next = p.Hused.Next
 		if p.Hused.Next != nil {
@@ -189,6 +201,7 @@ func (p *pool) revert(c *conn) {
 	c.Next = p.Hfree.Next
 	p.Hfree.Next = c
 	c.Prev = p.Hfree
+	p.Nfree++
 }
 
 /*************************START: 池化操作*******************************/
@@ -196,7 +209,7 @@ func (p *pool) Get() (ret *conn, err error) {
 	for {
 		p.Mutex.Lock()
 		if p.Config.MaxConns > 0 {
-			for p.Hfree == p.Tfree && p.Nalls >= p.Config.MaxConns {
+			for p.Nfree == 0 && p.Nalls >= p.Config.MaxConns {
 				if p.ErrExceMaxConns {
 					p.Mutex.Unlock()
 					return nil, ErrExceedMaxConns
@@ -219,7 +232,6 @@ func (p *pool) Get() (ret *conn, err error) {
 			return
 		}
 		if _, err = ret.C.Do("PING"); err == nil {
-			ret.T = time.Now().Unix()
 			// 检测通过, 直接返回
 			return
 		}
@@ -234,7 +246,7 @@ func (p *pool) Put(c *conn) {
 	}
 	broken := c.C.Err() != nil
 	p.Mutex.Lock()
-	if broken {
+	if broken || p.Nalls > p.Config.InitConns {
 		p.remove(c)
 	} else {
 		p.revert(c)
