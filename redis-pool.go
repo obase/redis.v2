@@ -14,10 +14,9 @@ type conn struct {
 	P    *pool
 	C    redis.Conn
 	T    int64
-	Prev *conn
 	Next *conn
-
-	rcv int // 配合bulk操作, 执行命令的数量
+	Prev *conn
+	rcv  int // 配合bulk操作, 执行命令的数量
 }
 
 func (c *conn) Reset() {
@@ -37,9 +36,8 @@ type pool struct {
 	TestIdleSecs int64
 	Nalls        int   // 所有数量
 	Nfree        int   // 空闲数量
-	Hfree        *conn // 空闲链表头
-	Tfree        *conn // 空闲链表尾
-	Hused        *conn // 在用链表头
+	Lfree        *conn // 空闲链表头
+	Lused        *conn // 在用链表头
 }
 
 func newRedisPool(c *Config, address string) (*pool, error) {
@@ -53,16 +51,14 @@ func newRedisPool(c *Config, address string) (*pool, error) {
 	}
 
 	mux := new(sync.Mutex)
-	nod := new(conn)
 	p := &pool{
 		Config:       c,
 		Mutex:        mux,
 		Cond:         sync.NewCond(mux),
 		Address:      nvl(address, c.Address[0]),
 		TestIdleSecs: int64(c.TestIdleTimeout.Seconds()),
-		Hfree:        nod, // 哨兵
-		Tfree:        nod,
-		Hused:        new(conn), // 哨兵
+		Lfree:        new(conn), // 哨兵
+		Lused:        new(conn), // 哨兵
 	}
 
 	for i := 0; i < c.InitConns; i++ {
@@ -130,10 +126,10 @@ func (p *pool) new() (ret *conn, err error) {
 */
 
 func (p *pool) foreach(f func(c *conn)) {
-	for e := p.Hused.Next; e != nil; e = e.Next {
+	for e := p.Lused.Next; e != nil; e = e.Next {
 		f(e)
 	}
-	for e := p.Hfree.Next; e != nil; e = e.Next {
+	for e := p.Lfree.Next; e != nil; e = e.Next {
 		f(e)
 	}
 }
@@ -144,16 +140,18 @@ func (p *pool) create(used bool) (c *conn, err error) {
 		return
 	}
 	if used {
-		if p.Hused.Next != nil {
-			p.Hused.Next.Prev = c
+		if p.Lused.Next != nil {
+			p.Lused.Next.Prev = c
 		}
-		c.Next = p.Hused.Next
-		p.Hused.Next = c
-		c.Prev = p.Hused
+		c.Next = p.Lused.Next
+		p.Lused.Next = c
+		c.Prev = p.Lused
 	} else {
-		p.Tfree.Next = c
-		c.Prev = p.Tfree
-		p.Tfree = c
+		if p.Lfree.Next != nil {
+			p.Lfree.Next.Prev = c
+		}
+		c.Next = p.Lfree.Next
+		p.Lfree.Next = c
 		p.Nfree++
 	}
 	p.Nalls++
@@ -161,36 +159,41 @@ func (p *pool) create(used bool) (c *conn, err error) {
 }
 
 func (p *pool) remove(c *conn) {
-	if c.Next != nil {
-		c.Next.Prev = c.Prev
-	}
+
 	if c.Prev != nil {
 		c.Prev.Next = c.Next
 	}
+
+	if c.Next != nil {
+		c.Next.Prev = c.Prev
+	}
+
 	p.Nalls--
 }
 
 func (p *pool) borrow() (c *conn) {
-	if p.Nfree > 0 {
-		c = p.Tfree
-		p.Tfree = c.Prev
-		p.Tfree.Next = nil // 确保结尾为nil
-		p.Nfree--
-
-		c.Next = p.Hused.Next
-		if p.Hused.Next != nil {
-			p.Hused.Next.Prev = c
+	c = p.Lfree.Next
+	if c != nil {
+		if c.Next != nil {
+			c.Next.Prev = c.Prev
+		}
+		if c.Prev != nil {
+			c.Prev.Next = c.Next
 		}
 
-		c.Prev = p.Hused
-		p.Hused.Next = c
+		if p.Lused.Next != nil {
+			p.Lused.Next.Prev = c
+		}
+		c.Next = p.Lused.Next
+		p.Lused.Next = c
+		c.Prev = p.Lused
+		p.Nfree--
 	}
 	return
 }
 
 func (p *pool) revert(c *conn) {
 	c.T = time.Now().Unix()
-
 	if c.Next != nil {
 		c.Next.Prev = c.Prev
 	}
@@ -198,9 +201,12 @@ func (p *pool) revert(c *conn) {
 		c.Prev.Next = c.Next
 	}
 
-	c.Next = p.Hfree.Next
-	p.Hfree.Next = c
-	c.Prev = p.Hfree
+	if p.Lfree.Next != nil {
+		p.Lfree.Next.Prev = c
+	}
+	c.Next = p.Lfree.Next
+	p.Lfree.Next = c
+	c.Prev = p.Lfree
 	p.Nfree++
 }
 
