@@ -196,7 +196,7 @@ func (p *pool) Get() (ret *conn, err error) {
 	for {
 		p.Mutex.Lock()
 		if p.Config.MaxConns > 0 {
-			for p.Nalls >= p.Config.MaxConns {
+			for p.Hfree == p.Tfree && p.Nalls >= p.Config.MaxConns {
 				if p.ErrExceMaxConns {
 					p.Mutex.Unlock()
 					return nil, ErrExceedMaxConns
