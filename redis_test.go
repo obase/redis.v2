@@ -2,7 +2,10 @@ package redis
 
 import (
 	"fmt"
+	"strconv"
+	"sync"
 	"testing"
+	"time"
 )
 
 func TestPool(t *testing.T) {
@@ -26,4 +29,26 @@ func TestPool(t *testing.T) {
 		//panic(err)
 	}
 	fmt.Println(replies[0].String())
+}
+
+func TestGet(t *testing.T) {
+	var demo = Get("demo")
+
+	paras := 10000
+	times := 100
+
+	start := time.Now().UnixNano()
+	wg := new(sync.WaitGroup)
+	for i := 0; i < paras; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < times; j++ {
+				demo.Do("GET", "key"+strconv.Itoa(j))
+			}
+		}()
+	}
+	wg.Wait()
+	end := time.Now().UnixNano()
+	fmt.Println("used:", end - start)
 }
